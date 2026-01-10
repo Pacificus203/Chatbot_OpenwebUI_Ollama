@@ -1,0 +1,198 @@
+services:
+
+  libretranslate:
+    container_name: libretranslate
+    image: libretranslate/libretranslate:v1.6.0
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    env_file:
+      - stack.env
+    volumes:
+      - libretranslate_api_keys:/app/db
+      - libretranslate_models:/home/libretranslate/.local:rw
+    tty: true
+    stdin_open: true
+    healthcheck:
+      test: ['CMD-SHELL', './venv/bin/python scripts/healthcheck.py']
+  grafana:
+    image: grafana/otel-lgtm:latest
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"   # Grafana UI
+      - "4317:4317"   # OTLP/gRPC
+      - "4318:4318"   # OTLP/HTTP
+    networks:
+      - openwebui_net
+
+  playwright:
+    image: mcr.microsoft.com/playwright:v1.57.0-noble # Version must match requirements.txt
+    container_name: playwright
+    command: npx -y playwright@1.57.0 run-server --port 3001 --host 0.0.0.0
+    restart: unless-stopped
+    environment:
+      - 'WEB_LOADER_ENGINE=playwright'
+      - 'PLAYWRIGHT_WS_URL=ws://playwright:3001'
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ./ollama:/root/.ollama
+    environment:
+      - OLLAMA_NUM_THREADS=${OLLAMA_NUM_THREADS}
+      - OLLAMA_GPU_LAYERS=${OLLAMA_GPU_LAYERS}
+      - OLLAMA_KV_CACHE=${OLLAMA_KV_CACHE}
+      - OLLAMA_MAX_LOADED_MODELS=${OLLAMA_MAX_LOADED_MODELS}
+      - OLLAMA_NUM_PARALLEL=${OLLAMA_NUM_PARALLEL}
+    #deploy:
+     # resources:
+      #  reservations:
+       #   devices:
+        #    - driver: ${OLLAMA_GPU_DRIVER-nvidia}
+         #     count: ${OLLAMA_GPU_COUNT-1}
+          #    capabilities:
+           #     - gpu
+    networks:
+      - openwebui_net
+
+  openwebui:
+    image: dyrnq/open-webui:${VERSION}
+    container_name: openwebui
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        limits:
+          cpus: "${CPUS}"
+          memory: "${MEMORY_LIMIT}"
+
+    ports:
+      - "${HOST_IP}:${WEBUI_PORT}:8080"
+
+    environment:
+      # Loader
+      WEB_LOADER_ENGINE: playwright
+      PLAYWRIGHT_WS_URL: ws://playwright:3001
+
+      # Core
+      WEBUI_NAME: "${WEBUI_NAME}"
+      WEBUI_SECRET_KEY: "${WEBUI_SECRET_KEY}"
+      PORT: "${PORT}"
+      DATA_DIR: "${DATA_DIR}"
+
+      # API
+      ENABLE_OPENAI_API: "${ENABLE_OPENAI_API}"
+      OPENAI_API_BASE_URL: "${OPENAI_API_BASE_URL}"
+      ENABLE_OLLAMA_API: "${ENABLE_OLLAMA_API}"
+      OLLAMA_BASE_URL: "${OLLAMA_BASE_URL}"
+
+      # Auth & Features
+      ENABLE_PERSISTENT_CONFIG: "${ENABLE_PERSISTENT_CONFIG}"
+      ENABLE_SIGNUP: "${ENABLE_SIGNUP}"
+      ENABLE_LOGIN_FORM: "${ENABLE_LOGIN_FORM}"
+      ENABLE_PASSWORD_AUTH: "${ENABLE_PASSWORD_AUTH}"
+      ENABLE_OAUTH_SIGNUP: "${ENABLE_OAUTH_SIGNUP}"
+
+      ENABLE_ADMIN_EXPORT: "${ENABLE_ADMIN_EXPORT}"
+      ENABLE_ADMIN_CHAT_ACCESS: "${ENABLE_ADMIN_CHAT_ACCESS}"
+      BYPASS_ADMIN_ACCESS_CONTROL: "${BYPASS_ADMIN_ACCESS_CONTROL}"
+
+      ENABLE_USER_WEBHOOKS: "${ENABLE_USER_WEBHOOKS}"
+      ENABLE_API_KEYS: "${ENABLE_API_KEYS}"
+      ENABLE_WEBSOCKET_SUPPORT: "${ENABLE_WEBSOCKET_SUPPORT}"
+
+      ENABLE_IMAGE_GENERATION: "${ENABLE_IMAGE_GENERATION}"
+      ENABLE_CODE_EXECUTION: "${ENABLE_CODE_EXECUTION}"
+      ENABLE_CODE_INTERPRETER: "${ENABLE_CODE_INTERPRETER}"
+      ENABLE_AUTOCOMPLETE_GENERATION: "${ENABLE_AUTOCOMPLETE_GENERATION}"
+      ENABLE_PUBLIC_ACTIVE_USERS_COUNT: "${ENABLE_PUBLIC_ACTIVE_USERS_COUNT}"
+
+      # Database
+      DATABASE_URL: "${DATABASE_URL}"
+      REDIS_URL: "${REDIS_URL}"
+
+      # Logging
+      GLOBAL_LOG_LEVEL: "${GLOBAL_LOG_LEVEL}"
+      AUDIT_LOGS_FILE_PATH: "${AUDIT_LOGS_FILE_PATH}"
+      AUDIT_LOG_LEVEL: "${AUDIT_LOG_LEVEL}"
+
+      # Elasticsearch
+      ELASTICSEARCH_API_KEY: "${ELASTICSEARCH_API_KEY}"
+      ELASTICSEARCH_CA_CERTS: "${ELASTICSEARCH_CA_CERTS}"
+      ELASTICSEARCH_CLOUD_ID: "${ELASTICSEARCH_CLOUD_ID}"
+      ELASTICSEARCH_INDEX_PREFIX: "${ELASTICSEARCH_INDEX_PREFIX}"
+      ELASTICSEARCH_PASSWORD: "${ELASTICSEARCH_PASSWORD}"
+      ELASTICSEARCH_URL: "${ELASTICSEARCH_URL}"
+      ELASTICSEARCH_USERNAME: "${ELASTICSEARCH_USERNAME}"
+
+      # ===============================
+      # OpenTelemetry (QUAN TRỌNG)
+      # ===============================
+      ENABLE_OTEL: "${ENABLE_OTEL}"
+      ENABLE_OTEL_TRACES: "${ENABLE_OTEL_TRACES}"
+      ENABLE_OTEL_METRICS: "${ENABLE_OTEL_METRICS}"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT}"
+      OTEL_EXPORTER_OTLP_INSECURE: "${OTEL_EXPORTER_OTLP_INSECURE}"
+      OTEL_SERVICE_NAME: "${OTEL_SERVICE_NAME}"
+      OTEL_RESOURCE_ATTRIBUTES: "${OTEL_RESOURCE_ATTRIBUTES}"
+
+    volumes:
+      - ./data:/app/backend/data
+      - ./env/env.py:/app/backend/open_webui/env.py:ro
+      - ./img:/app/backend/open_webui/static:ro
+
+    depends_on:
+      - postgres
+      - redis
+      - ollama
+      - playwright
+
+    networks:
+      - openwebui_net
+
+  postgres:
+    image: postgres:15
+    container_name: postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: openwebui
+      POSTGRES_USER: openwebui
+      POSTGRES_PASSWORD: openwebui
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+    networks:
+      - openwebui_net
+
+  redis:
+    image: redis:7
+    container_name: redis
+    restart: unless-stopped
+    volumes:
+      - ./redisdata:/data
+    networks:
+      - openwebui_net
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.12.0
+    container_name: elasticsearch
+    environment:
+      - discovery.type=single-node
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - xpack.security.http.ssl.enabled=false
+    ports:
+      - "9200:9200"
+    networks:
+      - openwebui_net
+
+networks:
+  openwebui_net:
+    driver: bridge
+
+volumes:
+  libretranslate_models:
+  libretranslate_api_keys:

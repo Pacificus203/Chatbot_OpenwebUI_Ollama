@@ -49,14 +49,14 @@ services:
       - OLLAMA_KV_CACHE=${OLLAMA_KV_CACHE}
       - OLLAMA_MAX_LOADED_MODELS=${OLLAMA_MAX_LOADED_MODELS}
       - OLLAMA_NUM_PARALLEL=${OLLAMA_NUM_PARALLEL}
-    #deploy:
-     # resources:
-      #  reservations:
-       #   devices:
-        #    - driver: ${OLLAMA_GPU_DRIVER-nvidia}
-         #     count: ${OLLAMA_GPU_COUNT-1}
-          #    capabilities:
-           #     - gpu
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: ${OLLAMA_GPU_DRIVER-nvidia}
+              count: ${OLLAMA_GPU_COUNT-1}
+              capabilities:
+                - gpu
     networks:
       - openwebui_net
 
